@@ -5,6 +5,8 @@
 #include <vector>
 #include <string>
 #include <zmq.hpp>
+#include <thread>
+#include "worker.hpp"
 
 namespace fs = std::filesystem;
 
@@ -15,6 +17,15 @@ struct KeyValue {
 
 using MapFuncType = std::vector<KeyValue> (*)(KeyValue);
 using ReduceFuncType = std::vector<std::string> (*)(std::vector<KeyValue>, int);
+
+void* map_worker() {
+    {
+        std::lock_guard<std::mutex> lock(map_mutex);
+        done = true;
+    }
+    cv.notify_one();
+};
+void* reduce_worker();
 
 int main() {
     fs::path mr_library_path = "./lib_mr_client.so";
@@ -42,12 +53,47 @@ int main() {
     zmq::context_t ctx(1);
     zmq::socket_t client(ctx, ZMQ_REQ);
     std::string server_address = "tcp://127.0.0.1:5555";
+    client.setsockopt(ZMQ_RCVTIMEO, 5000);
 
     try {
         client.connect(server_address);
 
         //communication logic goes here
+        std::thread tid_map[map_task_num];
+        std::thread tid_reduce[reduce_task_num];
+
+         // create map worker threads
+        for (int i = 0; i < map_task_num; i++) {
+            tid_map[i] = std::thread(map_worker);
+        }
+
+        // wait for all map workers to finish
+        {
+            std::unique_lock<std::mutex> lock(map_mutex);
+            cv.wait(lock, [] { return done; });
+        }
+
+        for (int i = 0; i < reduce_task_num; i++) {
+            tid_reduce[i] = std::thread(reduce_worker);
+        }
+
+        while (1) {
+            if (done) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+
+        for (int i = 0; i < map_task_num; i++) {
+            tid_map[i].join();
+        }
+
+        for (int i = 0; i < reduce_task_num; i++) {
+            tid_reduce[i].join();
+        }
+
         client.close();
+
     } catch (const zmq::error_t& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
