@@ -39,6 +39,19 @@ int main() {
         exit(-1);
     }
 
+    zmq::context_t ctx(1);
+    zmq::socket_t client(ctx, ZMQ_REQ);
+    std::string server_address = "tcp://127.0.0.1:5555";
+
+    try {
+        client.connect(server_address);
+
+        //communication logic goes here
+        client.close();
+    } catch (const zmq::error_t& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
 
     // MapFuncType map_func = map_func_ptr;
     // ReduceFuncType reduce_func = reduce_func_ptr;
