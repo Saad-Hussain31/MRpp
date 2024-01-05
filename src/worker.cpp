@@ -18,14 +18,68 @@ struct KeyValue {
 using MapFuncType = std::vector<KeyValue> (*)(KeyValue);
 using ReduceFuncType = std::vector<std::string> (*)(std::vector<KeyValue>, int);
 
-void* map_worker() {
-    {
-        std::lock_guard<std::mutex> lock(map_mutex);
-        done = true;
-    }
-    cv.notify_one();
-};
+KeyValue get_content(const char* file);
+void write_in_disk(const std::vector<KeyValue>& kvs, int map_task_idx);
 void* reduce_worker();
+
+void* map_worker() {
+    zmq::context_t ctx(1);
+    zmq::socket_t client(ctx, ZMQ_REQ);
+    std::string server_address = "tcp://127.0.0.1:5555";
+    client.connect(server_address);
+
+    std::unique_lock<std::mutex> lock(map_mutex);
+    int map_task_idx = map_id++;
+    lock.unlock();
+    bool ret = false;
+
+    while(1) {
+        ret = client.send("isMapDone", 10, ZMQ_SNDMORE);
+        ret = client.send("",0);
+        zmq::message_t reply;
+        client.recv(&reply);
+        if(std::string(static_cast<char*>(reply.data()), reply.size()) == "true") {
+            cv.notify_all();
+            // return ;
+        }
+
+        ret = client.send("assingTask", 10, ZMQ_SNDMORE);
+        ret = client.send("",0);
+        client.recv(&reply);
+        std::string task_temp(static_cast<char*>(reply.data()), reply.size());
+
+        if(task_temp == "empty") continue;
+        std::cout << map_task_idx << " get the task: " << task_temp << " is stop " << std::endl;
+
+        lock.lock();
+        if(disabled_map_id ==1 || disabled_map_id == 3 || disabled_map_id == 5) {
+            disabled_map_id++;
+            lock.unlock();
+            std::cout << map_task_idx << " recv task: " << task_temp << " is stop\n";
+        
+            while(1) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+            }
+        } else {
+            disabled_map_id++;
+        }
+        lock.unlock();
+        char task[task_temp.size() + 1];
+        strcpy(task, task_temp.c_str());
+        KeyValue kv = get_content(task);
+
+        MapFuncType map_func;
+        std::vector<KeyValue> kvs = map_func(kv);
+        write_in_disk(kvs, map_task_idx);
+
+        std::cout << map_task_idx << " finish the task: " << task_temp << std::endl;
+
+        ret = client.send("setMapStat", 10, ZMQ_SNDMORE);
+        ret = client.send(task_temp.c_str(), task_temp.size());
+        ret = client.send("", 0);
+    }
+}
+
 
 int main() {
     fs::path mr_library_path = "./lib_mr_client.so";
@@ -40,13 +94,13 @@ int main() {
 
     MapFuncType map_func_ptr = reinterpret_cast<MapFuncType>(dlsym(handle, "map_func"));
     if (!map_func_ptr) {
-        std::cerr << "Cannot load symbol 'mapF': " << dlerror() << '\n';
+        std::cerr << "Cannot load symbol 'map_func': " << dlerror() << '\n';
         exit(-1);
     }
 
     ReduceFuncType reduce_func_ptr = reinterpret_cast<ReduceFuncType>(dlsym(handle, "reduce_func"));
     if (!reduce_func_ptr) {
-        std::cerr << "Cannot load symbol 'reduceF': " << dlerror() << '\n';
+        std::cerr << "Cannot load symbol 'reduce_func': " << dlerror() << '\n';
         exit(-1);
     }
 
@@ -105,3 +159,4 @@ int main() {
 
     return 0;
 }
+
