@@ -40,7 +40,7 @@ void* map_worker() {
         client.recv(&reply);
         if(std::string(static_cast<char*>(reply.data()), reply.size()) == "true") {
             cv.notify_all();
-            // return ;
+            return nullptr;
         }
 
         ret = client.send("assingTask", 10, ZMQ_SNDMORE);
@@ -52,6 +52,13 @@ void* map_worker() {
         std::cout << map_task_idx << " get the task: " << task_temp << " is stop " << std::endl;
 
         lock.lock();
+
+
+        // ------------------------Test for timeout and retransmission---------------------
+        // Note: Needs to match the map quantity specified by the master; in this case, 1, 3, 5 are disabled,
+        // equivalent to threads 2, 4, 6 receiving tasks and then crashing
+        // If only two map workers are allocated (0 working, 1 crashes), the timeout is set relatively long,
+        // and one task is received after another; all tasks from 1 that timeout will be given to 0.
         if(disabled_map_id ==1 || disabled_map_id == 3 || disabled_map_id == 5) {
             disabled_map_id++;
             lock.unlock();
