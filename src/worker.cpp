@@ -6,6 +6,7 @@
 #include <string>
 #include <zmq.hpp>
 #include <thread>
+#include <fstream>
 #include "worker.hpp"
 
 namespace fs = std::filesystem;
@@ -18,9 +19,42 @@ struct KeyValue {
 using MapFuncType = std::vector<KeyValue> (*)(KeyValue);
 using ReduceFuncType = std::vector<std::string> (*)(std::vector<KeyValue>, int);
 
-KeyValue get_content(const char* file);
-void write_in_disk(const std::vector<KeyValue>& kvs, int map_task_idx);
 void* reduce_worker();
+
+
+int ihash(const std::string& str) {
+    int sum = 0;
+    for (char ch : str) {
+        sum += (ch - '0');
+    }
+    return sum % reduce_task_num;    
+}
+
+
+void write_kv(std::ofstream& ofs, const KeyValue& kv) {
+    std::string tmp = kv.key + ",1 ";
+    ofs << tmp << std::endl;
+}
+
+KeyValue get_content(const char* file) {
+    std::ifstream infile(file);
+    std::stringstream buffer;
+    buffer << infile.rdbuf();
+    KeyValue kv;
+    kv.key = file;
+    kv.value = buffer.str();
+    return kv;
+}
+
+void write_in_disk(const std::vector<KeyValue>& kvs, int map_task_idx) {
+    for (const auto& v : kvs) {
+        int reduce_idx = ihash(v.key);
+        std::string path = "mr-" + std::to_string(map_task_idx) + "-" + std::to_string(reduce_idx);
+        std::ofstream ofs(path, std::ofstream::out | std::ofstream::app);
+        write_kv(ofs, v);
+        ofs.close();
+    }
+}
 
 void* map_worker() {
     zmq::context_t ctx(1);
@@ -52,7 +86,6 @@ void* map_worker() {
         std::cout << map_task_idx << " get the task: " << task_temp << " is stop " << std::endl;
 
         lock.lock();
-
 
         // ------------------------Test for timeout and retransmission---------------------
         // Note: Needs to match the map quantity specified by the master; in this case, 1, 3, 5 are disabled,
