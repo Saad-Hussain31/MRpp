@@ -19,6 +19,9 @@ struct KeyValue {
 using MapFuncType = std::vector<KeyValue> (*)(KeyValue);
 using ReduceFuncType = std::vector<std::string> (*)(std::vector<KeyValue>, int);
 
+std::vector<KeyValue> shuffle(int reduce_task_num);
+void write(std::ofstream& ofs, const std::vector<std::string>& str);
+
 void* reduce_worker(zmq::context_t& context) {
     zmq::socket_t client(context, ZMQ_REQ);
     client.connect("tcp://127.0.0.1:5555");
@@ -55,7 +58,24 @@ void* reduce_worker(zmq::context_t& context) {
         }
 
         lock.unlock();
-        
+
+        std::vector<KeyValue> kvs = shuffle(reduce_task_idx);
+        ReduceFuncType reduce_func;
+        std::vector<std::string> retur = reduce_func(kvs, reduce_task_idx);
+        std::vector<std::string> str;
+        for (int i = 0; i < kvs.size(); i++) {
+            str.push_back(kvs[i].key + " " + retur[i]);
+        }
+        std::string filename = "mr-out-" + std::to_string(reduce_task_idx);
+        std::ofstream ofs(filename, std::ofstream::out | std::ofstream::app);
+        write(ofs, str);
+        ofs.close();
+
+        std::cout << std::this_thread::get_id() << " finish the task" << reduce_task_idx << std::endl;
+
+        ret = client.send("setReduceStat", 12, ZMQ_SNDMORE);
+        ret = client.send(std::to_string(reduce_task_idx).c_str(), std::to_string(reduce_task_idx).size());
+        ret = client.send("", 0);
 
     }
 }
