@@ -19,7 +19,46 @@ struct KeyValue {
 using MapFuncType = std::vector<KeyValue> (*)(KeyValue);
 using ReduceFuncType = std::vector<std::string> (*)(std::vector<KeyValue>, int);
 
-void* reduce_worker();
+void* reduce_worker(zmq::context_t& context) {
+    zmq::socket_t client(context, ZMQ_REQ);
+    client.connect("tcp://127.0.0.1:5555");
+    bool ret{false};
+
+    while(1) {
+        ret = client.send("Done", 4, ZMQ_SNDMORE);
+        ret = client.send("", 0);
+        zmq::message_t reply;
+        client.recv(&reply);
+        if (std::string(static_cast<char*>(reply.data()), reply.size()) == "true") {
+            return nullptr;
+        }
+
+        ret = client.send("assignReduceTask", 16, ZMQ_SNDMORE);
+        ret = client.send("", 0);
+        client.recv(&reply);
+        int reduce_task_idx = std::stoi(std::string(static_cast<char*>(reply.data()), reply.size()));
+
+        if(reduce_task_idx == -1) continue;
+
+        std::cout << std::this_thread::get_id() << " get the task" << reduce_task_idx << std::endl;
+
+        std::unique_lock<std::mutex> lock(map_mutex);
+        if (disabled_reduce_id == 1 || disabled_reduce_id == 3 || disabled_reduce_id == 5) {
+            disabled_reduce_id++;
+            lock.unlock();
+            std::cout << "recv task" << reduce_task_idx << " reduceTaskIdx is stop in " << std::this_thread::get_id() << std::endl;
+            while (1) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+            }
+        } else {
+            disabled_reduce_id++;
+        }
+
+        lock.unlock();
+        
+
+    }
+}
 
 
 int ihash(const std::string& str) {

@@ -3,6 +3,7 @@
 
 int map_id = 0;
 int disabled_map_id = 0;
+int disabled_reduce_id = 0;
 std::mutex map_mutex;
 std::condition_variable cv;
 int file_id = 0;
