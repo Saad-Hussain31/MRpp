@@ -20,7 +20,12 @@ using MapFuncType = std::vector<KeyValue> (*)(KeyValue);
 using ReduceFuncType = std::vector<std::string> (*)(std::vector<KeyValue>, int);
 
 std::vector<KeyValue> shuffle(int reduce_task_num);
-void write(std::ofstream& ofs, const std::vector<std::string>& str);
+
+void write(std::ofstream& ofs, const std::vector<std::string>& str) {
+    for (const auto& s : str) {
+        ofs << s << std::endl;
+    }
+}
 
 void* reduce_worker(zmq::context_t& context) {
     zmq::socket_t client(context, ZMQ_REQ);
